@@ -1,0 +1,18 @@
+{
+  "name": "node-rgbd",
+  "version": "1.0.0",
+  "description": "Remote controlled, Adalight compliant RGB LED strip controller",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "FruitieX",
+  "license": "GPL-2.0",
+  "dependencies": {
+    "node-spawn": "0.0.7",
+    "onecolor": "^2.5.0",
+    "serialport": "^2.0.6",
+    "socket.io": "^1.4.5"
+  }
+}
