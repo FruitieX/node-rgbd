@@ -17,7 +17,7 @@ var strips = [
         numLeds: 11,
         name: 'monitor',
         dev: '/dev/ttyUSB1',
-        baudrate: 115200, // 328 not so much
+        baudrate: 38400, // 328 not so much
         reversed: true,
         header: new Buffer(6),
         colors: []
@@ -29,12 +29,12 @@ var SerialPort = require('serialport').SerialPort;
 
 // initialize strips
 strips.forEach(function(strip) {
-    // start with all LEDs on
+    // start with all LEDs halfway on
     strip.colors = new Array(strip.numLeds).map(function() {
         return {
-            red: 255,
-            green: 255,
-            blue: 255
+            red: 128,
+            green: 128,
+            blue: 128
         };
     });
 
@@ -129,5 +129,8 @@ io.on('connection', function(socket) {
         }
 
         strips[frame.id].colors = frame.colors;
+        if (strips[frame.id].reversed) {
+            strips[frame.id].colors.reverse();
+        }
     });
 });

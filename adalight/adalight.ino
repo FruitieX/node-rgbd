@@ -3,13 +3,15 @@
 
 #include "FastLED.h"
 
-#define NUM_LEDS 91 // Max LED count
+//#define NUM_LEDS 11 // my 328 'secondary' led strip behind monitor
+#define NUM_LEDS 91 // Max LED count, used on my 32u4 behind desk
+
 #define LED_PIN 3 // arduino output pin
 #define GROUND_PIN 10 // in case you need extra ones
 #define BRIGHTNESS 180 // maximum brightness (255 is max, but my power supply sucks)
 
 // go as fast as you can without erratic colors, must match with node-rgbd config
-//#define SPEED 115200 // 328 is pretty slow
+//#define SPEED 38400 // 328 is pretty slow
 #define SPEED 1000000 // 32u4 is pretty fast
 
 CRGB leds[NUM_LEDS];
