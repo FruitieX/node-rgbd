@@ -11,7 +11,8 @@ var strips = [
         baudrate: 1000000, // 32u4 is FAST
         reversed: true,
         header: new Buffer(6),
-        colors: []
+        colors: [],
+        oldColors: []
     }
     /*
     {
@@ -29,10 +30,21 @@ var strips = [
 var readline = require('readline');
 var SerialPort = require('serialport');
 
+var color = require('tinycolor2');
+
+var fadeTime = new Date().getTime();
+
 // initialize strips
 strips.forEach(function(strip) {
     // start with all LEDs off
     strip.colors = Array.from(Array(strip.numLeds)).map(function() {
+        return {
+            r: 0,
+            g: 0,
+            b: 0
+        };
+    });
+    strip.oldColors = Array.from(Array(strip.numLeds)).map(function() {
         return {
             r: 0,
             g: 0,
@@ -55,9 +67,20 @@ strips.forEach(function(strip) {
             if (!strip.colors[i]) {
                 continue;
             }
-            buf[6 + (i * 3) + 0] = Math.round(strip.colors[i].r || 0);
-            buf[6 + (i * 3) + 1] = Math.round(strip.colors[i].g || 0);
-            buf[6 + (i * 3) + 2] = Math.round(strip.colors[i].b || 0);
+
+            let fade = 100 - Math.min(100, (new Date().getTime() - fadeTime) / 25);
+            let c = null;
+
+            if (fade) {
+                c = color.mix(color(strip.colors[i]), color(strip.oldColors[i]), fade);
+                c = c.toRgb();
+            } else {
+                c = strip.colors[i];
+            }
+
+            buf[6 + (i * 3) + 0] = Math.round(c.r || 0);
+            buf[6 + (i * 3) + 1] = Math.round(c.g || 0);
+            buf[6 + (i * 3) + 2] = Math.round(c.b || 0);
         }
 
         strip.serialPort.write(buf, function() {
@@ -124,6 +147,11 @@ server.listen(port, listenAddr);
 console.log('rgbd socket.io server listening on port 9009');
 
 io.on('connection', function(socket) {
+    fadeTime = new Date().getTime();
+    strips.forEach(strip => {
+        strip.oldColors = strip.colors.slice(0);
+    });
+
     socket.on('frame', function(frame) {
         if (!strips[frame.id]) {
             console.log('invalid strip id: ' + frame.id);

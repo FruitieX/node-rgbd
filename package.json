@@ -13,6 +13,7 @@
     "node-spawn": "0.0.7",
     "onecolor": "^2.5.0",
     "serialport": "^4.0.4",
-    "socket.io": "^1.4.5"
+    "socket.io": "^1.4.5",
+    "tinycolor2": "^1.4.1"
   }
 }
