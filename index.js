@@ -12,7 +12,8 @@ var strips = [
         reversed: true,
         header: new Buffer(6),
         colors: []
-    },
+    }
+    /*
     {
         numLeds: 11,
         name: 'monitor',
@@ -22,19 +23,20 @@ var strips = [
         header: new Buffer(6),
         colors: []
     }
+    */
 ];
 
 var readline = require('readline');
-var SerialPort = require('serialport').SerialPort;
+var SerialPort = require('serialport');
 
 // initialize strips
 strips.forEach(function(strip) {
-    // start with all LEDs halfway on
-    strip.colors = new Array(strip.numLeds).map(function() {
+    // start with all LEDs off
+    strip.colors = Array.from(Array(strip.numLeds)).map(function() {
         return {
-            red: 128,
-            green: 128,
-            blue: 128
+            r: 0,
+            g: 0,
+            b: 0
         };
     });
 
@@ -53,9 +55,9 @@ strips.forEach(function(strip) {
             if (!strip.colors[i]) {
                 continue;
             }
-            buf[6 + (i * 3) + 0] = Math.round(strip.colors[i].red || 0);
-            buf[6 + (i * 3) + 1] = Math.round(strip.colors[i].green || 0);
-            buf[6 + (i * 3) + 2] = Math.round(strip.colors[i].blue || 0);
+            buf[6 + (i * 3) + 0] = Math.round(strip.colors[i].r || 0);
+            buf[6 + (i * 3) + 1] = Math.round(strip.colors[i].g || 0);
+            buf[6 + (i * 3) + 2] = Math.round(strip.colors[i].b || 0);
         }
 
         strip.serialPort.write(buf, function() {
@@ -73,12 +75,13 @@ strips.forEach(function(strip) {
             });
         } else {
             strip.serialPort = new SerialPort(strip.dev, {
+                autoOpen: false,
                 baudrate: strip.baudrate,
                 dataBits : 8,
                 parity : 'none',
                 stopBits: 1,
                 flowControl : false
-            }, false);
+            });
 
             strip.serialPort.on('error', function(err) {
                 setTimeout(function() {
