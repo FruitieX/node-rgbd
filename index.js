@@ -1,7 +1,7 @@
 'use strict';
 
 var port = 9009;
-var listenAddr = 'localhost';
+var listenAddr = '0.0.0.0';
 
 var strips = [
     {
@@ -12,7 +12,9 @@ var strips = [
         reversed: true,
         header: new Buffer(6),
         colors: [],
-        oldColors: []
+        oldColors: [],
+        fps: 0,
+        fpsLastSample: new Date().getTime()
     }
     /*
     {
@@ -22,7 +24,10 @@ var strips = [
         baudrate: 38400, // 328 not so much
         reversed: true,
         header: new Buffer(6),
-        colors: []
+        colors: [],
+        oldColors: [],
+        fps: 0,
+        fpsLastSample: new Date().getTime()
     }
     */
 ];
@@ -33,6 +38,10 @@ var SerialPort = require('serialport');
 var color = require('tinycolor2');
 
 var fadeTime = new Date().getTime();
+
+let fpsAvgFactor = 0.975;
+
+let socketListenerFramerate = 30;
 
 // initialize strips
 strips.forEach(function(strip) {
@@ -85,6 +94,10 @@ strips.forEach(function(strip) {
 
         strip.serialPort.write(buf, function() {
             strip.serialPort.drain(function() {
+                let newFps =  1 / ((new Date().getTime() - strip.fpsLastSample) / 1000);
+                strip.fpsLastSample = new Date().getTime();
+                strip.fps = fpsAvgFactor * strip.fps + (1 - fpsAvgFactor) * newFps;
+
                 process.nextTick(strip.writeColor);
             });
         });
@@ -164,4 +177,12 @@ io.on('connection', function(socket) {
             strips[frame.id].colors.reverse();
         }
     });
+
+    socket.on('stripsSubscribe', function() {
+        socket.join('strips');
+    });
 });
+
+setInterval(() => {
+    io.to('strips').emit('strips', strips);
+}, 1000 / socketListenerFramerate);
