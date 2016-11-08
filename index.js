@@ -5,16 +5,17 @@ var listenAddr = '0.0.0.0';
 
 var strips = [
     {
-        numLeds: 91,
+        numLeds: 90,
         name: 'desk',
         dev: '/dev/ttyACM0',
         baudrate: 1000000, // 32u4 is FAST
-        reversed: true,
+        reversed: false,
         header: new Buffer(6),
         colors: [],
         oldColors: [],
         fps: 0,
-        fpsLastSample: new Date().getTime()
+        fpsLastSample: new Date().getTime(),
+        brightness: 1
     }
     /*
     {
@@ -41,7 +42,7 @@ var fadeTime = new Date().getTime();
 
 let fpsAvgFactor = 0.975;
 
-let socketListenerFramerate = 30;
+let socketListenerFramerate = 20;
 
 // initialize strips
 strips.forEach(function(strip) {
@@ -87,9 +88,13 @@ strips.forEach(function(strip) {
                 c = strip.colors[i];
             }
 
-            buf[6 + (i * 3) + 0] = Math.round(c.r || 0);
-            buf[6 + (i * 3) + 1] = Math.round(c.g || 0);
-            buf[6 + (i * 3) + 2] = Math.round(c.b || 0);
+            let r = c.r * strip.brightness;
+            let g = c.g * strip.brightness;
+            let b = c.b * strip.brightness;
+
+            buf[6 + (i * 3) + 0] = Math.round(r || 0);
+            buf[6 + (i * 3) + 1] = Math.round(g || 0);
+            buf[6 + (i * 3) + 2] = Math.round(b || 0);
         }
 
         strip.serialPort.write(buf, function() {
@@ -168,8 +173,9 @@ io.on('connection', function(socket) {
     socket.on('frame', function(frame) {
         if (!strips[frame.id]) {
             console.log('invalid strip id: ' + frame.id);
-            socket.emit('error', 'invalid strip id: ' + frame.id +
-                                 ', max is: ' + strips.length - 1);
+            socket.emit('err', 'invalid strip id: ' + frame.id +
+                               ', max is: ' + strips.length - 1);
+            return;
         }
 
         strips[frame.id].colors = frame.colors;
@@ -181,8 +187,24 @@ io.on('connection', function(socket) {
     socket.on('stripsSubscribe', function() {
         socket.join('strips');
     });
+    socket.on('setBrightness', function(data) {
+        if (!strips[data.index]) {
+            return;
+        }
+
+        strips[data.index].brightness = data.value;
+    });
 });
 
 setInterval(() => {
-    io.to('strips').emit('strips', strips);
+    io.to('strips').emit('strips', strips.map(strip => ({
+        numLeds: strip.numLeds,
+        name: strip.name,
+        dev: strip.dev,
+        baudrate: strip.baudrate,
+        reversed: strip.reversed,
+        colors: strip.colors,
+        fps: strip.fps,
+        brightness: strip.brightness
+    })));
 }, 1000 / socketListenerFramerate);
