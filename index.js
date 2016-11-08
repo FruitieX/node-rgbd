@@ -109,7 +109,9 @@ strips.forEach(function(strip) {
     };
 
     strip.openSerialPort = function(err) {
-        if (strip.serialPort) {
+        if (!strip.dev) {
+            return;
+        } else if (strip.serialPort) {
             strip.serialPort.close(function() {
                 strip.serialPort = null;
                 setTimeout(strip.openSerialPort, 1000);
