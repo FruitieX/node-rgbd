@@ -7,11 +7,12 @@ var port = 9009;
 var listenAddr = '0.0.0.0';
 
 var patterns = {
-    disabled: null
+    Disabled: null
 };
-var activePattern = 'disabled';
-var prevPattern = 'disabled';
+var activePattern = 'Disabled';
+var prevPattern = 'Disabled';
 var fadeStart = new Date().getTime();
+var autoBrightness = true;
 
 var fadeTime = 2000;
 
@@ -36,6 +37,23 @@ var SerialPort = require('serialport');
 let fpsAvgFactor = 0.975;
 
 let socketListenerFramerate = 20;
+
+function dither(c) {
+    let rand = Math.random();
+    if (c.r !== Math.floor(c.r)) {
+        const shouldFloor = rand > (c.r - Math.floor(c.r));
+        c.r = shouldFloor ? Math.floor(c.r) : Math.ceil(c.r);
+    }
+    if (c.g !== Math.floor(c.g)) {
+        const shouldFloor = rand > (c.g - Math.floor(c.g));
+        c.g = shouldFloor ? Math.floor(c.g) : Math.ceil(c.g);
+    }
+    if (c.b !== Math.floor(c.b)) {
+        const shouldFloor = rand > (c.b - Math.floor(c.b));
+        c.b = shouldFloor ? Math.floor(c.b) : Math.ceil(c.b);
+    }
+    return c;
+}
 
 // initialize strips
 strips.forEach(function(strip, index) {
@@ -100,9 +118,31 @@ strips.forEach(function(strip, index) {
                 c = Object.assign({}, patternStrip[i]);
             }
 
+            if (autoBrightness) {
+                const hours = new Date().getHours();
+                const min = new Date().getMinutes();
+                const sec = new Date().getSeconds();
+
+                const totalSec = min * 60 + sec;
+                const fadeInHour = 8;
+                const fadeOutHour = 21;
+
+                strip.brightness = 1;
+
+                if (hours < fadeInHour || hours > fadeOutHour) {
+                    strip.brightness = 0.1;
+                } else if (hours === fadeInHour) {
+                    strip.brightness = 0.1 + 0.9 * totalSec / 3600;
+                } else if (hours === fadeOutHour) {
+                    strip.brightness = 1 - (0.9 * totalSec / 3600);
+                }
+            }
+
             c.r *= strip.brightness;
             c.g *= strip.brightness;
             c.b *= strip.brightness;
+
+            c = dither(c);
 
             strip.colors[i] = c;
 
@@ -187,8 +227,10 @@ console.log('rgbd socket.io server listening on port 9009');
 
 io.on('connection', function(socket) {
     // emit existing patterns right away
+    // TODO: refactor into bundled state updates
     socket.emit('patterns', _.keys(patterns));
     socket.emit('activate', activePattern);
+    socket.emit('autoBrightness', autoBrightness);
 
     socket.on('frame', function(frame) {
         if (!strips[frame.id]) {
@@ -235,6 +277,10 @@ io.on('connection', function(socket) {
 
         strips[data.index].brightness = data.value;
     });
+    socket.on('autoBrightness', function(value) {
+        autoBrightness = value;
+        socket.broadcast.emit('autoBrightness', autoBrightness);
+    });
 });
 
 setInterval(() => {
@@ -242,6 +288,14 @@ setInterval(() => {
         let omitted = _.omit(strip, [ 'header' ]);
 
         omitted.patterns = _.keys(patterns);
+
+        omitted.colors = omitted.colors.map(colors => {
+            return {
+                r: Math.round(colors.r),
+                g: Math.round(colors.g),
+                b: Math.round(colors.b),
+            };
+        });
 
         return omitted;
     });
