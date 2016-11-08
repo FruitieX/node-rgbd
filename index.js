@@ -6,9 +6,11 @@ const color = require('tinycolor2');
 var port = 9009;
 var listenAddr = '0.0.0.0';
 
-var patterns = {};
-var activePattern = null;
-var prevPattern = null;
+var patterns = {
+    disabled: null
+};
+var activePattern = 'disabled';
+var prevPattern = 'disabled';
 var fadeTime = new Date().getTime();
 
 var strips = [
