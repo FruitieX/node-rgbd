@@ -126,6 +126,7 @@ strips.forEach(function(strip, index) {
 
     strip.openSerialPort = function(err) {
         if (!strip.dev) {
+            console.log('WARNING: not opening null serialport!');
             setInterval(strip.writeColor, 10);
         } else if (strip.serialPort) {
             strip.serialPort.close(function() {
