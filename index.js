@@ -11,13 +11,15 @@ var patterns = {
 };
 var activePattern = 'disabled';
 var prevPattern = 'disabled';
-var fadeTime = new Date().getTime();
+var fadeStart = new Date().getTime();
+
+var fadeTime = 2000;
 
 var strips = [
     {
         numLeds: 90,
         name: 'desk',
-        dev: null,
+        dev: '/dev/ttyACM0',
         baudrate: 1000000, // 32u4 is FAST
         reversed: false,
         header: new Buffer(6),
@@ -88,7 +90,7 @@ strips.forEach(function(strip, index) {
         }
 
         for (var i = 0; i < strip.numLeds; i++) {
-            let fade = 100 - Math.min(100, (new Date().getTime() - fadeTime) / 25);
+            let fade = 100 - Math.min(100, (new Date().getTime() - fadeStart) / fadeTime * 100);
 
             let c = null;
             if (fade && oldPatternStrip) {
@@ -218,7 +220,7 @@ io.on('connection', function(socket) {
     socket.on('activate', function(name) {
         prevPattern = activePattern;
         activePattern = name;
-        fadeTime = new Date().getTime();
+        fadeStart = new Date().getTime();
 
         socket.broadcast.emit('activate', name);
     });
