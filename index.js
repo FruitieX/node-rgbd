@@ -259,11 +259,31 @@ io.on('connection', function(socket) {
         }
     });
 
+    socket.on('prevPattern', function(skipPattern) {
+        // Don't change to skipPattern if specified
+        if (prevPattern === skipPattern) {
+            return;
+        }
+
+        // Activate previous pattern
+        const temp = prevPattern;
+        prevPattern = activePattern;
+        activePattern = temp;
+
+        fadeStart = new Date().getTime();
+        socket.broadcast.emit('activate', temp);
+    });
+
     socket.on('activate', function(name) {
+        // Pattern already active
+        if (name === activePattern) {
+            return;
+        }
+
         prevPattern = activePattern;
         activePattern = name;
-        fadeStart = new Date().getTime();
 
+        fadeStart = new Date().getTime();
         socket.broadcast.emit('activate', name);
     });
 
