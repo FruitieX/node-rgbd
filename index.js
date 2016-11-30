@@ -55,6 +55,15 @@ function dither(c) {
     return c;
 }
 
+// color calibration function
+function calibrate(c) {
+    return {
+        r: Math.pow(c.r / 255, 2) * 255,
+        g: Math.pow(c.g / 255, 2) * 170,
+        b: Math.pow(c.b / 255, 2) * 150
+    }
+}
+
 // initialize strips
 strips.forEach(function(strip, index) {
     // start with all LEDs off
@@ -145,6 +154,8 @@ strips.forEach(function(strip, index) {
             c = dither(c);
 
             strip.colors[i] = c;
+
+            c = calibrate(c);
 
             buf[6 + (i * 3) + 0] = Math.round(c.r || 0);
             buf[6 + (i * 3) + 1] = Math.round(c.g || 0);
