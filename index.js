@@ -294,6 +294,138 @@ config.strips.forEach(function(strip, index) {
 var http = require('http');
 var server = http.createServer();
 var io = require('socket.io')(server);
+const Sockjs = require('sockjs');
+const sockjsOpts = {
+    sockjs_url: "http://cdn.jsdelivr.net/sockjs/1.0.1/sockjs.min.js"
+};
+
+const clients = [];
+const frameSubscribers = [];
+function broadcast(_clients, method, params) {
+    _.forOwn(_clients, (conn) => {
+        conn.write(JSON.stringify({
+            jsonrpc: '2.0',
+            method,
+            params
+        }));
+    });
+}
+function send(conn, method, params) {
+    conn.write(JSON.stringify({
+        jsonrpc: '2.0',
+        method,
+        params
+    }));
+}
+
+const sockjs = Sockjs.createServer(sockjsOpts);
+sockjs.on('connection', (conn) => {
+    clients[conn.id] = conn;
+
+    // sync client
+    send(conn, 'sync', {
+        patterns: _.keys(config.patterns),
+        activate: config.activePattern,
+        autoBrightness: config.autoBrightness
+    });
+
+    // handler for client messages
+    conn.on('data', (message) => {
+        message = JSON.parse(message);
+        if (!message.params) {
+            message.params = {};
+        }
+
+        // TODO: error handling
+
+        if (message.method === 'frame') {
+            const frame = message.params.frame;
+
+            if (!config.strips[frame.id]) {
+                console.log('invalid strip id: ' + frame.id);
+                socket.emit('err', 'invalid strip id: ' + frame.id +
+                                   ', max is: ' + config.strips.length - 1);
+                return;
+            }
+
+            if (!frame.name) {
+                console.log('must provide frame name!');
+                socket.emit('err', 'must provide frame name!');
+                return;
+            }
+
+            // TODO clean up on disconnect
+            if (!config.patterns[frame.name]) {
+                config.patterns[frame.name] = [];
+                socket.broadcast.emit('patterns', _.keys(config.patterns));
+            }
+
+            config.patterns[frame.name][frame.id] = frame.colors;
+
+            if (config.strips[frame.id].reversed) {
+                config.patterns[frame.name][frame.id].reverse();
+            }
+        } else if (message.method === 'prevPattern') {
+            const skipPattern = message.params.skipPattern;
+
+            // Don't change to skipPattern if specified
+            if (config.prevPattern === skipPattern) {
+                return;
+            }
+
+            if (!config.patterns[config.prevPattern]) {
+                return console.log('Not changing to unknown pattern:', config.prevPattern);
+            }
+
+            console.log('Activating previous pattern:', config.prevPattern, 'active was:', config.activePattern);
+            // Activate previous pattern
+            const temp = config.prevPattern;
+            config.prevPattern = config.activePattern;
+            config.activePattern = temp;
+            storeConfigThrottled();
+
+            config.fadeStart = new Date().getTime();
+            broadcast(clients, 'activate', temp);
+        } else if (message.method === 'activate') {
+            const name = message.params.name;
+
+            // Pattern already active
+            if (name === config.activePattern) {
+                return;
+            }
+
+            if (!config.patterns[name]) {
+                return console.log('Not changing to unknown pattern:', name);
+            }
+
+            console.log('Activating pattern:', name, 'previous was:', config.prevPattern);
+            config.prevPattern = config.activePattern;
+            config.activePattern = name;
+            storeConfigThrottled();
+
+            config.fadeStart = new Date().getTime();
+            broadcast(clients, 'activate', name);
+        } else if (message.method === 'stripsSubscribe') {
+            frameSubscribers[conn.id] = conn;
+        } else if (message.method === 'setBrightness') {
+            config.strips[message.params.index].brightness = data.value;
+            storeConfigThrottled();
+        } else if (message.method === 'autoBrightness') {
+            config.autoBrightness = message.params.value;
+            storeConfigThrottled();
+            broadcast(clients, 'autoBrightness', config.autoBrightness);
+        } else {
+            console.log('unknown message', message);
+        }
+    });
+
+    conn.on('close', () => {
+        delete clients[conn.id];
+        delete frameSubscribers[conn.id];
+    });
+});
+
+sockjs.installHandlers(server, { prefix: '/ws' });
 server.listen(config.port, config.listenAddr);
 
 console.log('rgbd socket.io server listening on port', config.port);
@@ -417,4 +549,5 @@ setInterval(() => {
     });
 
     io.to('strips').emit('strips', emittedStrips);
+    broadcast(frameSubscribers, 'strips', emittedStrips);
 }, 1000 / socketListenerFramerate);
