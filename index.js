@@ -2,34 +2,38 @@
 
 const _ = require('lodash');
 const color = require('tinycolor2');
+const path = require('path');
+const fs = require('fs');
 
-var port = 9009;
-var listenAddr = '0.0.0.0';
+let config = {
+    port: 9009,
+    listenAddr: '0.0.0.0',
 
-var patterns = {
-    Disabled: null
+    patterns: {
+        Disabled: null
+    },
+    activePattern: 'Disabled',
+    prevPattern: 'Disabled',
+    fadeStart: new Date().getTime(),
+    autoBrightness: true,
+
+    fadeTime: 2000,
+
+    strips: [
+        {
+            numLeds: 90,
+            name: 'desk',
+            dev: '/dev/ttyACM0',
+            baudrate: 1000000, // 32u4 is FAST
+            reversed: false,
+            header: new Buffer(6),
+            colors: [],
+            fps: 0,
+            fpsLastSample: new Date().getTime(),
+            brightness: 1
+        }
+    ]
 };
-var activePattern = 'Disabled';
-var prevPattern = 'Disabled';
-var fadeStart = new Date().getTime();
-var autoBrightness = true;
-
-var fadeTime = 2000;
-
-var strips = [
-    {
-        numLeds: 90,
-        name: 'desk',
-        dev: '/dev/ttyACM0',
-        baudrate: 1000000, // 32u4 is FAST
-        reversed: false,
-        header: new Buffer(6),
-        colors: [],
-        fps: 0,
-        fpsLastSample: new Date().getTime(),
-        brightness: 1
-    }
-];
 
 var readline = require('readline');
 var SerialPort = require('serialport');
@@ -37,6 +41,65 @@ var SerialPort = require('serialport');
 let fpsAvgFactor = 0.975;
 
 let socketListenerFramerate = 20;
+
+const configPath = path.join(process.env.HOME, '.rgbd-config.json');
+const storeConfig = (quit) => {
+    console.log('Storing configuration...');
+    const omittedConfig = Object.assign({}, config, {
+        strips: config.strips.map(strip => (
+            _.pick(strip, [
+                'numLeds',
+                'name',
+                'dev',
+                'baudrate',
+                'reversed',
+                'brightness'
+            ])
+        ))
+    });
+
+    //fs.writeFileSync(configPath, JSON.stringify(omittedConfig, '', 4));
+    fs.writeFile(configPath, JSON.stringify(omittedConfig, '', 4), () => {
+        if (quit) {
+            console.log('Quitting...');
+            // workaround for nodemon not restarting, used to be process.exit
+            process.kill(process.pid, 'SIGUSR2');
+        }
+    });
+};
+const storeConfigThrottled = _.throttle(storeConfig, 1000);
+const restoreConfig = () => {
+    let storedConfig = null;
+    try {
+        storedConfig = fs.readFileSync(configPath);
+        console.log('Restoring config...');
+
+        config = JSON.parse(storedConfig);
+        config.strips.forEach(strip => {
+            strip.header = new Buffer(6);
+            strip.colors = [];
+            strip.fps = 0;
+            strip.fpsLastSample = new Date().getTime();
+        });
+    } catch(err) {
+        console.log('Unable to restore config:', err.message);
+        if (err.code === 'ENOENT') {
+            console.log('Writing default config to', configPath);
+            storeConfigThrottled();
+        }
+        return;
+    }
+};
+restoreConfig();
+
+process.once('SIGINT', () => {
+    console.log('SIGINT received, saving config');
+    storeConfig(true);
+});
+process.once('SIGUSR2', () => {
+    console.log('SIGUSR2 received, saving config');
+    storeConfig(true);
+});
 
 function dither(c) {
     let rand = Math.random();
@@ -65,7 +128,7 @@ function calibrate(c) {
 }
 
 // initialize strips
-strips.forEach(function(strip, index) {
+config.strips.forEach(function(strip, index) {
     // start with all LEDs off
     strip.colors = Array.from(Array(strip.numLeds)).map(function() {
         return {
@@ -86,8 +149,8 @@ strips.forEach(function(strip, index) {
         var buf = new Buffer(6 + strip.numLeds * 3);
         strip.header.copy(buf);
 
-        const pattern = patterns[activePattern];
-        const oldPattern = patterns[prevPattern];
+        const pattern = config.patterns[config.activePattern];
+        const oldPattern = config.patterns[config.prevPattern];
 
         let patternStrip = null;
         let oldPatternStrip = null;
@@ -117,7 +180,7 @@ strips.forEach(function(strip, index) {
         }
 
         for (var i = 0; i < strip.numLeds; i++) {
-            let fade = 100 - Math.min(100, (new Date().getTime() - fadeStart) / fadeTime * 100);
+            let fade = 100 - Math.min(100, (new Date().getTime() - config.fadeStart) / config.fadeTime * 100);
 
             let c = null;
             if (fade && oldPatternStrip) {
@@ -127,7 +190,7 @@ strips.forEach(function(strip, index) {
                 c = Object.assign({}, patternStrip[i]);
             }
 
-            if (autoBrightness) {
+            if (config.autoBrightness) {
                 const hours = new Date().getHours();
                 const min = new Date().getMinutes();
                 const sec = new Date().getSeconds();
@@ -139,11 +202,11 @@ strips.forEach(function(strip, index) {
                 strip.brightness = 1;
 
                 if (hours < fadeInHour || hours > fadeOutHour) {
-                    strip.brightness = 0.1;
+                    strip.brightness = 0.2;
                 } else if (hours === fadeInHour) {
-                    strip.brightness = 0.1 + 0.9 * totalSec / 3600;
+                    strip.brightness = 0.2 + 0.8 * totalSec / 3600;
                 } else if (hours === fadeOutHour) {
-                    strip.brightness = 1 - (0.9 * totalSec / 3600);
+                    strip.brightness = 1 - (0.8 * totalSec / 3600);
                 }
             }
 
@@ -151,11 +214,10 @@ strips.forEach(function(strip, index) {
             c.g *= strip.brightness;
             c.b *= strip.brightness;
 
-            c = dither(c);
-
             strip.colors[i] = c;
 
             c = calibrate(c);
+            c = dither(c);
 
             buf[6 + (i * 3) + 0] = Math.round(c.r || 0);
             buf[6 + (i * 3) + 1] = Math.round(c.g || 0);
@@ -232,22 +294,22 @@ strips.forEach(function(strip, index) {
 var http = require('http');
 var server = http.createServer();
 var io = require('socket.io')(server);
-server.listen(port, listenAddr);
+server.listen(config.port, config.listenAddr);
 
-console.log('rgbd socket.io server listening on port 9009');
+console.log('rgbd socket.io server listening on port', config.port);
 
 io.on('connection', function(socket) {
     // emit existing patterns right away
     // TODO: refactor into bundled state updates
-    socket.emit('patterns', _.keys(patterns));
-    socket.emit('activate', activePattern);
-    socket.emit('autoBrightness', autoBrightness);
+    socket.emit('patterns', _.keys(config.patterns));
+    socket.emit('activate', config.activePattern);
+    socket.emit('autoBrightness', config.autoBrightness);
 
     socket.on('frame', function(frame) {
-        if (!strips[frame.id]) {
+        if (!config.strips[frame.id]) {
             console.log('invalid strip id: ' + frame.id);
             socket.emit('err', 'invalid strip id: ' + frame.id +
-                               ', max is: ' + strips.length - 1);
+                               ', max is: ' + config.strips.length - 1);
             return;
         }
 
@@ -258,43 +320,55 @@ io.on('connection', function(socket) {
         }
 
         // TODO clean up on disconnect
-        if (!patterns[frame.name]) {
-            patterns[frame.name] = [];
-            socket.broadcast.emit('patterns', _.keys(patterns));
+        if (!config.patterns[frame.name]) {
+            config.patterns[frame.name] = [];
+            socket.broadcast.emit('patterns', _.keys(config.patterns));
         }
 
-        patterns[frame.name][frame.id] = frame.colors;
+        config.patterns[frame.name][frame.id] = frame.colors;
 
-        if (strips[frame.id].reversed) {
-            patterns[frame.name][frame.id].reverse();
+        if (config.strips[frame.id].reversed) {
+            config.patterns[frame.name][frame.id].reverse();
         }
     });
 
     socket.on('prevPattern', function(skipPattern) {
         // Don't change to skipPattern if specified
-        if (prevPattern === skipPattern) {
+        if (config.prevPattern === skipPattern) {
             return;
         }
 
-        // Activate previous pattern
-        const temp = prevPattern;
-        prevPattern = activePattern;
-        activePattern = temp;
+        if (!config.patterns[config.prevPattern]) {
+            return console.log('Not changing to unknown pattern:', config.prevPattern);
+        }
 
-        fadeStart = new Date().getTime();
+        console.log('Activating previous pattern:', config.prevPattern, 'active was:', config.activePattern);
+        // Activate previous pattern
+        const temp = config.prevPattern;
+        config.prevPattern = config.activePattern;
+        config.activePattern = temp;
+        storeConfigThrottled();
+
+        config.fadeStart = new Date().getTime();
         socket.broadcast.emit('activate', temp);
     });
 
     socket.on('activate', function(name) {
         // Pattern already active
-        if (name === activePattern) {
+        if (name === config.activePattern) {
             return;
         }
 
-        prevPattern = activePattern;
-        activePattern = name;
+        if (!config.patterns[name]) {
+            return console.log('Not changing to unknown pattern:', name);
+        }
 
-        fadeStart = new Date().getTime();
+        console.log('Activating pattern:', name, 'previous was:', config.prevPattern);
+        config.prevPattern = config.activePattern;
+        config.activePattern = name;
+        storeConfigThrottled();
+
+        config.fadeStart = new Date().getTime();
         socket.broadcast.emit('activate', name);
     });
 
@@ -302,25 +376,36 @@ io.on('connection', function(socket) {
         socket.join('strips');
     });
     socket.on('setBrightness', function(data) {
-        if (!strips[data.index]) {
+        if (!config.strips[data.index]) {
             return;
         }
 
-        strips[data.index].brightness = data.value;
+        config.strips[data.index].brightness = data.value;
+        storeConfigThrottled();
     });
     socket.on('autoBrightness', function(value) {
-        autoBrightness = value;
-        socket.broadcast.emit('autoBrightness', autoBrightness);
+        config.autoBrightness = value;
+        storeConfigThrottled();
+        socket.broadcast.emit('autoBrightness', config.autoBrightness);
     });
 });
 
 setInterval(() => {
-    let emittedStrips = strips.map(strip => {
-        let omitted = _.omit(strip, [ 'header' ]);
+    let emittedStrips = config.strips.map(strip => {
+        let picked =_.pick(strip, [
+            'numLeds',
+            'name',
+            'dev',
+            'fps',
+            'baudrate',
+            'reversed',
+            'colors',
+            'brightness'
+        ]);
 
-        omitted.patterns = _.keys(patterns);
+        picked.patterns = _.keys(config.patterns);
 
-        omitted.colors = omitted.colors.map(colors => {
+        picked.colors = picked.colors.map(colors => {
             return {
                 r: Math.round(colors.r),
                 g: Math.round(colors.g),
@@ -328,7 +413,7 @@ setInterval(() => {
             };
         });
 
-        return omitted;
+        return picked;
     });
 
     io.to('strips').emit('strips', emittedStrips);
